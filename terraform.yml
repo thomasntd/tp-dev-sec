@@ -1,0 +1,51 @@
+name: Terraform Azure VM
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "apply ou destroy"
+        type: choice
+        options: [apply, destroy]
+        default: apply
+
+permissions:
+  id-token: write   # nécessaire pour l'auth OIDC vers Azure
+  contents: read
+
+env:
+  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  ARM_USE_OIDC: "true"
+  TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ vars.TFSTATE_RG }}" \
+            -backend-config="storage_account_name=${{ vars.TFSTATE_SA }}" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=vm.tfstate"
+
+      - name: Terraform Plan
+        if: github.event.inputs.action != 'destroy'
+        run: terraform plan -out=tfplan
+
+      - name: Terraform Apply
+        if: github.event.inputs.action != 'destroy'
+        run: terraform apply -auto-approve tfplan
+
+      - name: Terraform Destroy
+        if: github.event.inputs.action == 'destroy'
+        run: terraform destroy -auto-approve
